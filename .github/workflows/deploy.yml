@@ -1,0 +1,46 @@
+name: Deploy to EC2
+on:
+  push:
+    branches: [master]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          password: ${{ secrets.EC2_PASSWORD }}
+          script: |
+            cd /root/workspace/med-x/med-x-f
+            git pull origin master
+            npm install
+            npm run build
+            pm2 restart med-x-frontend
+
+      - name: Notify Discord - Success
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "✅ Deployment Successful",
+                "description": "**Repo:** ${{ github.repository }}\n**Branch:** ${{ github.ref_name }}\n**Commit:** ${{ github.event.head_commit.message }}\n**By:** ${{ github.actor }}",
+                "color": 65280
+              }]
+            }' \
+            ${{ secrets.DISCORD_WEBHOOK }}
+
+      - name: Notify Discord - Failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+            -d '{
+              "embeds": [{
+                "title": "❌ Deployment Failed",
+                "description": "**Repo:** ${{ github.repository }}\n**Branch:** ${{ github.ref_name }}\n**Commit:** ${{ github.event.head_commit.message }}\n**By:** ${{ github.actor }}",
+                "color": 16711680
+              }]
+            }' \
+            ${{ secrets.DISCORD_WEBHOOK }}
