@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Fragment } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronDown, ListChecks, ClipboardCheck, MessageSquareWarning, CheckCircle2, AlertCircle, SlidersHorizontal, Filter, ArrowRightLeft } from 'lucide-react';
+import axios from 'axios';
 import DashboardLayout from '../layouts/DashboardLayout';
 import api from '../services/api';
+import { MEDX_API_URL } from '../utils/constants';
 
 /* ── Styled Dropdown ──────────────────────────────────────────────── */
 const Dropdown = ({ label, displayText, open, setOpen, children, dropdownRef }) => (
@@ -351,8 +353,25 @@ const AuditorDashboard = () => {
         },
       });
       if (res.data?.success) {
-        setCharts(res.data.data.charts || []);
+        const chartsData = res.data.data.charts || [];
+        setCharts(chartsData);
         setCounts(res.data.data.counts || { Critical: 0, High: 0, Medium: 0, Low: 0, done: 0 });
+
+        // Backfill the `client` column on our local DB so the team-lead
+        // analytics dropdown can offer it as a filter. Fire-and-forget.
+        const clientMappings = chartsData
+          .filter((c) => c?.Id != null && c?.Client)
+          .map((c) => ({ sessionId: String(c.Id), client: String(c.Client) }));
+        if (clientMappings.length > 0) {
+          const token = localStorage.getItem('token');
+          axios
+            .post(
+              `${MEDX_API_URL}/charts/sync-clients`,
+              { mappings: clientMappings },
+              { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+            )
+            .catch(() => {});
+        }
       }
     } catch (e) {
       console.error('Failed to fetch charts:', e.message);

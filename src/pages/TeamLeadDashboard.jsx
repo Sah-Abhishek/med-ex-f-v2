@@ -98,19 +98,27 @@ const TeamLeadDashboard = () => {
   const [processingLoading, setProcessingLoading] = useState(false);
   const [error, setError] = useState(null);
   const [period, setPeriod] = useState('30');
+  const [specialty, setSpecialty] = useState('all');
+  const [specialties, setSpecialties] = useState([]);
+  const [client, setClient] = useState('all');
+  const [clients, setClients] = useState([]);
   const [processingPage, setProcessingPage] = useState(1);
 
-  // Period change → fetch dashboard + team-lead aggregates (neither is paginated).
-  // The paginated processing call has its own effect below.
+  // Period / specialty / client change → fetch dashboard + team-lead aggregates
+  // (neither is paginated). The paginated processing call has its own effect.
   useEffect(() => {
     fetchAggregates();
-  }, [period]);
+  }, [period, specialty, client]);
 
   // Processing table is backend-paginated: refetch only the page we need
-  // whenever period or page changes.
+  // whenever period, specialty, client, or page changes.
   useEffect(() => {
     fetchProcessingPage(processingPage);
-  }, [period, processingPage]);
+  }, [period, specialty, client, processingPage]);
+
+  useEffect(() => {
+    fetchFilterOptions();
+  }, []);
 
   const changePeriod = (newPeriod) => {
     // Jump back to page 1 so the effect above fetches the first page of the new window
@@ -118,6 +126,34 @@ const TeamLeadDashboard = () => {
     setProcessingPage(1);
     setPeriod(newPeriod);
   };
+
+  const changeSpecialty = (newSpecialty) => {
+    setProcessingPage(1);
+    setSpecialty(newSpecialty);
+  };
+
+  const changeClient = (newClient) => {
+    setProcessingPage(1);
+    setClient(newClient);
+  };
+
+  const fetchFilterOptions = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const [sp, cl] = await Promise.all([
+        axios.get(`${MEDX_API_URL}/charts/filters/specialties`, { headers }),
+        axios.get(`${MEDX_API_URL}/charts/filters/clients`, { headers }),
+      ]);
+      if (sp.data?.success) setSpecialties(sp.data.specialties || []);
+      if (cl.data?.success) setClients(cl.data.clients || []);
+    } catch {
+      // Non-fatal — dropdowns fall back to "All".
+    }
+  };
+
+  const specialtyParam = specialty && specialty !== 'all' ? specialty : null;
+  const clientParam = client && client !== 'all' ? client : null;
 
   const fetchAggregates = async () => {
     setLoading(true);
@@ -130,9 +166,20 @@ const TeamLeadDashboard = () => {
       // the per-category card stays in sync with the rest of the overview tab.
       const startDate = new Date(Date.now() - parseInt(period, 10) * 86400 * 1000).toISOString();
 
+      const dashParams = new URLSearchParams({ period });
+      const tlParams = new URLSearchParams({ startDate });
+      if (specialtyParam) {
+        dashParams.set('specialty', specialtyParam);
+        tlParams.set('specialty', specialtyParam);
+      }
+      if (clientParam) {
+        dashParams.set('client', clientParam);
+        tlParams.set('client', clientParam);
+      }
+
       const [dashRes, tlRes] = await Promise.all([
-        axios.get(`${MEDX_API_URL}/charts/analytics/dashboard?period=${period}`, { headers }),
-        axios.get(`${MEDX_API_URL}/charts/analytics/team-lead?startDate=${encodeURIComponent(startDate)}`, { headers }),
+        axios.get(`${MEDX_API_URL}/charts/analytics/dashboard?${dashParams.toString()}`, { headers }),
+        axios.get(`${MEDX_API_URL}/charts/analytics/team-lead?${tlParams.toString()}`, { headers }),
       ]);
 
       if (dashRes.data?.success) setDashboardData(dashRes.data.analytics);
@@ -149,7 +196,14 @@ const TeamLeadDashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
-      const url = `${MEDX_API_URL}/charts/analytics/processing?period=${period}&page=${page}&pageSize=${PROCESSING_PAGE_SIZE}`;
+      const params = new URLSearchParams({
+        period,
+        page: String(page),
+        pageSize: String(PROCESSING_PAGE_SIZE),
+      });
+      if (specialtyParam) params.set('specialty', specialtyParam);
+      if (clientParam) params.set('client', clientParam);
+      const url = `${MEDX_API_URL}/charts/analytics/processing?${params.toString()}`;
       const res = await axios.get(url, { headers });
       if (res.data?.success) setProcessingData(res.data.data);
     } catch (err) {
@@ -186,6 +240,26 @@ const TeamLeadDashboard = () => {
             <p className="text-sm text-[var(--color-text-secondary)] mt-0.5">Team analytics, processing insights, and user management</p>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={client}
+              onChange={(e) => changeClient(e.target.value)}
+              className="text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+            >
+              <option value="all">All Clients</option>
+              {clients.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <select
+              value={specialty}
+              onChange={(e) => changeSpecialty(e.target.value)}
+              className="text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+            >
+              <option value="all">All Specialties</option>
+              {specialties.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
             <select
               value={period}
               onChange={(e) => changePeriod(e.target.value)}
@@ -295,9 +369,14 @@ const TeamLeadDashboard = () => {
                       </p>
                     </div>
                     {teamLeadData?.summary && (
-                      <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold whitespace-nowrap">
-                        {teamLeadData.summary.correctionRate}% overall
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold whitespace-nowrap">
+                          {(100 - teamLeadData.summary.correctionRate).toFixed(1)}% accuracy
+                        </span>
+                        <span className="text-xs px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-semibold whitespace-nowrap">
+                          {teamLeadData.summary.correctionRate}% corrected
+                        </span>
+                      </div>
                     )}
                   </div>
 
@@ -310,10 +389,18 @@ const TeamLeadDashboard = () => {
                       ].map(({ key, label, color, bar }) => {
                         const c = teamLeadData.byCategory[key] || { total: 0, accepted: 0, edited: 0, deleted: 0, added: 0, correctionCount: 0, correctionRate: 0 };
                         const rateWidth = Math.min(100, c.correctionRate);
+                        const accuracy = c.total > 0 ? +(100 - c.correctionRate).toFixed(1) : 0;
                         return (
                           <div key={key}>
                             <div className="flex items-center justify-between text-xs mb-1.5">
-                              <span className="font-medium text-[var(--color-text)]">{label}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-[var(--color-text)]">{label}</span>
+                                {c.total > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold text-[11px]">
+                                    {accuracy}% accuracy
+                                  </span>
+                                )}
+                              </div>
                               <span className="text-[var(--color-text-secondary)]">
                                 <span className="font-semibold text-[var(--color-text)]">{c.correctionCount}</span> / {c.total} corrected
                                 <span className="ml-2 text-[var(--color-text-tertiary)]">({c.correctionRate}%)</span>

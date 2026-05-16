@@ -50,17 +50,50 @@ const ProcessingAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [period, setPeriod] = useState('30');
+  const [specialty, setSpecialty] = useState('all');
+  const [specialties, setSpecialties] = useState([]);
+  const [client, setClient] = useState('all');
+  const [clients, setClients] = useState([]);
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     fetchAnalytics();
-  }, [period, page]);
+  }, [period, specialty, client, page]);
 
-  // When the user changes the period filter, jump back to page 1 so we don't
-  // stay on a page that may no longer exist in the new window.
+  useEffect(() => {
+    fetchFilterOptions();
+  }, []);
+
+  // When a top-level filter changes, jump back to page 1 so we don't stay on
+  // a page that may no longer exist in the filtered window.
   const changePeriod = (newPeriod) => {
     setPage(1);
     setPeriod(newPeriod);
+  };
+
+  const changeSpecialty = (newSpecialty) => {
+    setPage(1);
+    setSpecialty(newSpecialty);
+  };
+
+  const changeClient = (newClient) => {
+    setPage(1);
+    setClient(newClient);
+  };
+
+  const fetchFilterOptions = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const [sp, cl] = await Promise.all([
+        axios.get(`${MEDX_API_URL}/charts/filters/specialties`, { headers }),
+        axios.get(`${MEDX_API_URL}/charts/filters/clients`, { headers }),
+      ]);
+      if (sp.data?.success) setSpecialties(sp.data.specialties || []);
+      if (cl.data?.success) setClients(cl.data.clients || []);
+    } catch {
+      // Non-fatal — the dropdowns fall back to "All".
+    }
   };
 
   const fetchAnalytics = async () => {
@@ -68,7 +101,14 @@ const ProcessingAnalytics = () => {
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      const url = `${MEDX_API_URL}/charts/analytics/processing?period=${period}&page=${page}&pageSize=${CHART_TIMINGS_PAGE_SIZE}`;
+      const params = new URLSearchParams({
+        period,
+        page: String(page),
+        pageSize: String(CHART_TIMINGS_PAGE_SIZE),
+      });
+      if (specialty && specialty !== 'all') params.set('specialty', specialty);
+      if (client && client !== 'all') params.set('client', client);
+      const url = `${MEDX_API_URL}/charts/analytics/processing?${params.toString()}`;
       const res = await axios.get(url, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
@@ -121,6 +161,26 @@ const ProcessingAnalytics = () => {
             <p className="text-sm text-[var(--color-text-secondary)] mt-0.5">Document processing performance and timing</p>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={client}
+              onChange={(e) => changeClient(e.target.value)}
+              className="text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+            >
+              <option value="all">All Clients</option>
+              {clients.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <select
+              value={specialty}
+              onChange={(e) => changeSpecialty(e.target.value)}
+              className="text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+            >
+              <option value="all">All Specialties</option>
+              {specialties.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
             <select
               value={period}
               onChange={(e) => changePeriod(e.target.value)}

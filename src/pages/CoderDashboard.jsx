@@ -180,6 +180,23 @@ export default function MyToDoList() {
         setCounts(data.data.counts || {});
         // Store chart IDs for prev/next navigation in ProcessChart
         setChartIds(chartsData.map((c) => c.Id));
+
+        // Backfill the `client` column on our local DB so the team-lead
+        // analytics dropdown can offer it as a filter. Fire-and-forget — we
+        // don't block the UI on this and we don't surface failures.
+        const clientMappings = chartsData
+          .filter((c) => c?.Id != null && c?.Client)
+          .map((c) => ({ sessionId: String(c.Id), client: String(c.Client) }));
+        if (clientMappings.length > 0) {
+          const token = localStorage.getItem("token");
+          axios
+            .post(
+              `${MEDX_API_URL}/charts/sync-clients`,
+              { mappings: clientMappings },
+              { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+            )
+            .catch(() => {});
+        }
       }
     } catch (e) {
       console.error("Failed to fetch charts:", e.message);
